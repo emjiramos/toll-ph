@@ -70,6 +70,16 @@
     var coords = [], re = /!1d(-?\d+(?:\.\d+)?)!2d(-?\d+(?:\.\d+)?)/g, m;
     var whole = url.href;
     while ((m = re.exec(whole))) coords.push(point(m[2], m[1], ""));
+    // A stop typed as "lat,lng" in the path (e.g. a dropped pin or "Your
+    // location") has no position in data=; only the named stops do, in order.
+    var stops = names.map(fromText);
+    var unplaced = stops.filter(function (s) { return s && s.lat === null; });
+    if (stops.length >= 2 && coords.length > 0 && coords.length === unplaced.length) {
+      unplaced.forEach(function (s, i) { s.lat = coords[i].lat; s.lng = coords[i].lng; });
+      out.from = stops[0];
+      out.to = stops[stops.length - 1];
+      return out;
+    }
     if (coords.length >= 2) {
       out.from = coords[0];
       out.to = coords[coords.length - 1];

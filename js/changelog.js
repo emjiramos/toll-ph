@@ -9,6 +9,13 @@
 window.TOLLPH_PHASE = "Public beta";
 window.CHANGELOG = [
   {
+    version: "0.9.2", date: "2026-10-17", title: "Google Maps links read correctly",
+    items: [
+      ["Pasted Google Maps links now start in the right place.", "Some links, such as a trip from a named place to your current location or a dropped pin, showed the wrong toll entry. They now use the start in the link."],
+      ["No more silent guesses.", "If the app can't tell where a link's trip starts, it says so instead of keeping the entry you picked before."]
+    ]
+  },
+  {
     version: "0.9.1", date: "2026-10-17", title: "GCash only, for now",
     items: [
       ["Buy me a coffee now offers GCash only.", "PayPal and Wise were taken off because their pages show the owner's full legal name. They may come back with a page that shows a chosen name instead."]

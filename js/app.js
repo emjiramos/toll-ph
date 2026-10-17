@@ -347,7 +347,15 @@
       out.innerHTML = '<span class="warn-text">That doesn\'t look like a Google Maps or Waze directions link.</span>';
       return;
     }
-    var start = resolve(r.from, "canEnter") || (fromSel.value || null);
+    var start = resolve(r.from, "canEnter");
+    if (!start && r.from) {
+      // The link names a start we can't place: say so rather than quietly
+      // keeping whatever entry was picked before.
+      out.innerHTML = '<span class="warn-text">Couldn\'t tell where this ' + esc(appName) + " trip starts (" +
+        esc(r.from.name.split(",")[0] || "no place name") + ").</span> Search for your start above, or pick your entry.";
+      return;
+    }
+    if (!start) start = fromSel.value || null;
     var end = resolve(r.to, "canExit");
     if (!end) {
       out.innerHTML = '<span class="warn-text">Couldn\'t tell where this ' + esc(appName) + " trip ends.</span> Try searching for the place above.";

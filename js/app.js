@@ -8,9 +8,12 @@
   "use strict";
 
   var COMPARE_API = "https://www.expressway.ph/api/toll-calculator";
-  // The published page's own address, for share links when the app runs
-  // inside the claude.ai viewer (its frame can't see the outer URL).
-  var SHARE_BASE = "https://claude.ai/artifact/Hm1DJk6RWD9VKa4Sc5QNfo";
+  // The public website, for share links made where the page's own address
+  // isn't one other people can open (inside a frame, a local file, the app).
+  var SHARE_BASE = "https://emjiramos.github.io/toll-ph/";
+  var FEEDBACK_ISSUES = "https://github.com/emjiramos/toll-ph/issues/new";
+  var FEEDBACK_EMAIL = "markkevinr2026@gmail.com";
+  var MAX_STOPS = 3;
   var STORE_KEY = "tollph.trip";
   var HISTORY_KEY = "tollph.history";
   var FUEL_KEY = "tollph.fuel";
@@ -70,6 +73,9 @@
   var $ = function (id) { return document.getElementById(id); };
   var fromSel = $("from"), toSel = $("to"), roundBox = $("round");
   var vehicleClass = 1;
+  // Stops between From and To: plazas where you exit and later get back on.
+  // "" is a stop row with nothing picked yet; it's skipped when pricing.
+  var stops = [];
 
   function label(name) { return DISPLAY[name] || name; }
   function peso(n) { return "₱" + Math.round(n).toLocaleString("en-PH"); }
@@ -104,6 +110,7 @@
   function showTab(name) {
     $("view-changelog").hidden = true;
     $("view-support").hidden = true;
+    $("view-feedback").hidden = true;
     TABS.forEach(function (t) {
       $("tab-" + t).setAttribute("aria-selected", String(t === name));
       $("view-" + t).hidden = t !== name;
@@ -156,11 +163,13 @@
     return groups;
   }
 
-  function fill(sel, mode, reachable) {
-    var keep = sel.value;
+  // mode: "from" (entries), "to" (exits) or "stop" (exit, then get back on).
+  // prevId is the point before this one, which can't be picked again here.
+  function fill(sel, mode, reachable, prevId, keepVal) {
+    var keep = keepVal !== undefined ? keepVal : sel.value;
     sel.innerHTML = "";
     var ph = document.createElement("option");
-    ph.value = ""; ph.textContent = mode === "from" ? "Choose entry…" : "Choose exit…";
+    ph.value = ""; ph.textContent = mode === "from" ? "Choose entry…" : mode === "stop" ? "Choose where you stop…" : "Choose exit…";
     sel.appendChild(ph);
     grouped().forEach(function (g) {
       var og = document.createElement("optgroup");
@@ -170,11 +179,10 @@
         o.value = p.id;
         var text = label(p.name);
         if (mode === "from" && !p.canEnter) { o.disabled = true; text += " (exit only)"; }
-        if (mode === "to" && !p.canExit) { o.disabled = true; text += " (entry only)"; }
-        if (mode === "to" && reachable && p.canExit && !reachable[p.id]) {
-          o.disabled = true; text += " (can't reach)";
-        }
-        if (mode === "to" && p.id === fromSel.value) o.disabled = true;
+        if (mode !== "from" && !p.canExit) { o.disabled = true; text += " (entry only)"; }
+        else if (mode !== "from" && reachable && !reachable[p.id]) { o.disabled = true; text += " (can't reach)"; }
+        else if (mode === "stop" && !p.canEnter) { o.disabled = true; text += " (can't get back on)"; }
+        if (mode !== "from" && p.id === prevId) o.disabled = true;
         o.textContent = text;
         og.appendChild(o);
       });
@@ -182,6 +190,67 @@
     });
     var opt = keep && sel.querySelector('option[value="' + CSS.escape(keep) + '"]');
     sel.value = opt && !opt.disabled ? keep : "";
+  }
+
+  /* ---------- Stops ---------- */
+  function stopSels() { return Array.prototype.slice.call(document.querySelectorAll("#stops select[data-stop]")); }
+  function activeStops() { return stops.filter(Boolean); }
+  // The plazas the trip runs through, in order: From, each picked stop, To.
+  function tripPoints(from, to, list) { return [from].concat(list.filter(Boolean), [to]); }
+
+  function renderStopRows() {
+    $("stops").innerHTML = stops.map(function (s, i) {
+      return '<div class="stop-row"><label class="field"><span class="field-label">Stop ' + (i + 1) + "</span>" +
+        '<select data-stop="' + i + '"></select></label>' +
+        '<button type="button" class="stop-x" data-remove="' + i + '" aria-label="Remove stop ' + (i + 1) + '" title="Remove stop">×</button></div>';
+    }).join("") +
+      (stops.length < MAX_STOPS ? '<button type="button" class="add-stop" id="add-stop">+ Add a stop</button>' : "");
+  }
+
+  // Refill every list after From: each stop and To can only be places
+  // reachable from the point before them. A pick that no longer works is cleared.
+  function refillChain() {
+    var prev = fromSel.value;
+    stopSels().forEach(function (sel, i) {
+      fill(sel, "stop", prev ? engine.reachableFrom(prev, vehicleClass) : null, prev, stops[i] || "");
+      stops[i] = sel.value;
+      if (sel.value) prev = sel.value;
+    });
+    fill(toSel, "to", prev ? engine.reachableFrom(prev, vehicleClass) : null, prev);
+  }
+
+  $("stops").addEventListener("click", function (e) {
+    if (e.target.closest("#add-stop")) {
+      stops.push("");
+      renderStopRows();
+      update("stop");
+      var sels = stopSels();
+      if (sels.length) sels[sels.length - 1].focus();
+      return;
+    }
+    var x = e.target.closest("button[data-remove]");
+    if (!x) return;
+    stops.splice(Number(x.getAttribute("data-remove")), 1);
+    renderStopRows();
+    update("stop");
+  });
+  $("stops").addEventListener("change", function (e) {
+    var sel = e.target.closest("select[data-stop]");
+    if (!sel) return;
+    stops[Number(sel.getAttribute("data-stop"))] = sel.value;
+    update("stop");
+  });
+
+  // Price a trip through every point in order. Leaving the expressway at a
+  // stop ends that toll; getting back on starts a new one.
+  function tripQuote(points, cls) {
+    var legs = [], charges = [], total = 0;
+    for (var i = 0; i < points.length - 1; i++) {
+      var q = engine.quote(points[i], points[i + 1], cls || vehicleClass);
+      if (!q) return { failed: i };
+      legs.push(q); charges = charges.concat(q.charges); total += q.total;
+    }
+    return { total: total, charges: charges, legs: legs };
   }
 
   /* ---------- Find a place ---------- */
@@ -382,7 +451,7 @@
         "Both ends are closer to each other than to any expressway in this app.";
       return;
     }
-    load(plan.from, plan.to, roundBox.checked);
+    load(plan.from, plan.to, roundBox.checked, undefined, []);
     $("maplink").value = "";
     var who = function (pt) { return pt && pt.name ? esc(pt.name.split(",")[0]) : "your start"; };
     out.innerHTML = (r.from
@@ -423,7 +492,7 @@
     var b = e.target.closest("button[data-pop]");
     if (!b) return;
     var r = POPULAR[Number(b.getAttribute("data-pop"))];
-    load(placeByName(r.from).id, placeByName(r.to).id, roundBox.checked);
+    load(placeByName(r.from).id, placeByName(r.to).id, roundBox.checked, undefined, []);
   });
 
   /* ---------- Trip result ---------- */
@@ -561,10 +630,15 @@
         "You'll see the fare to every exit, then the full route once you pick where you exit.</p></div>";
       return;
     }
-    if (!to) { out.innerHTML = faresFromList(from); return; }
-    var go = quote(from, to);
-    if (!go) {
-      out.innerHTML = '<div class="card"><p class="empty">There\'s no toll route between those two plazas.</p></div>';
+    var via = activeStops();
+    $("compare").hidden = via.length > 0; // Expressway.PH only prices a single entry and exit
+    // No exit yet: list fares from the last stop, or from the entry.
+    if (!to) { out.innerHTML = faresFromList(via.length ? via[via.length - 1] : from); return; }
+    var points = tripPoints(from, to, via);
+    var go = tripQuote(points);
+    if (go.failed !== undefined) {
+      out.innerHTML = '<div class="card"><p class="empty">There\'s no toll route from ' + esc(label(engine.place(points[go.failed]).name)) +
+        " to " + esc(label(engine.place(points[go.failed + 1]).name)) + ".</p></div>";
       return;
     }
     var back = roundBox.checked ? quote(to, from) : null;
@@ -576,10 +650,22 @@
     var hist = back ? "" : prevTotal(go);
     if (hist) html += '<p class="was-total">' + esc(hist) + "</p>";
     html += '<p class="with-fuel" id="with-fuel"></p>';
+    if (via.length) html += stopCostNote(from, to, go);
     html += stickerSplit(all);
-    html += '<p class="leg-title">' + (back ? "Going" : "Your route") + "</p>" + steps(go);
+    if (via.length) {
+      go.legs.forEach(function (leg, i) {
+        html += '<p class="leg-title leg-head"><span>Part ' + (i + 1) + ": " + esc(label(engine.place(points[i]).name)) + " → " +
+          esc(label(engine.place(points[i + 1]).name)) + '</span><span class="fare">' + fareText(leg.total) + "</span></p>" + steps(leg);
+        if (i < go.legs.length - 1) {
+          html += '<p class="stop-step">Stop ' + (i + 1) + ": " + esc(label(engine.place(points[i + 1]).name)) +
+            ". When you're done, get back on here; that starts a new toll.</p>";
+        }
+      });
+    } else {
+      html += '<p class="leg-title">' + (back ? "Going" : "Your route") + "</p>" + steps(go);
+    }
     if (back) {
-      html += '<details class="return"><summary>Coming back · ' + peso(back.total) + "</summary>" + steps(back) + "</details>";
+      html += '<details class="return"><summary>Coming back' + (via.length ? " (straight, no stops)" : "") + " · " + peso(back.total) + "</summary>" + steps(back) + "</details>";
     } else if (roundBox.checked) {
       html += '<p class="note warn">You can\'t enter at ' + esc(label(engine.place(to).name)) +
         " for the trip back (it's exit-only or one-way). Pick another exit to price the return.</p>";
@@ -592,13 +678,29 @@
     html += "</div>";
     out.innerHTML = html;
     // A typed trip km belongs to one trip; clear it when the trip changes.
-    if (!current0 || current0 !== from + ">" + to) $("fuel-trip-km").value = "";
-    current0 = from + ">" + to;
-    current = { from: from, to: to, round: roundBox.checked, go: go, back: back, total: total };
+    var key = points.join(">");
+    if (!current0 || current0 !== key) $("fuel-trip-km").value = "";
+    current0 = key;
+    current = { from: from, to: to, stops: via, round: roundBox.checked, go: go, back: back, total: total };
     $("compare-card").hidden = false;
     $("fuel-card").hidden = false;
     renderFuel();
-    historyTimer = setTimeout(function () { addHistory(from, to, roundBox.checked, total); }, HISTORY_DELAY_MS);
+    historyTimer = setTimeout(function () { addHistory(from, to, roundBox.checked, total, via); }, HISTORY_DELAY_MS);
+  }
+
+  // What stopping costs compared with driving straight through. Exiting ends
+  // a toll and re-entering starts a new one, so a stop usually costs more.
+  function stopCostNote(from, to, go) {
+    var direct = quote(from, to);
+    if (!direct) return "";
+    var diff = go.total - direct.total;
+    var straight = "Straight through without stopping: " + peso(direct.total) + ". ";
+    if (diff > 0) {
+      return '<p class="note">' + esc(straight) + "Your " + (go.legs.length > 2 ? "stops add " : "stop adds ") + "<strong>" + esc(peso(diff)) +
+        "</strong>, because leaving the expressway ends one toll and getting back on starts another.</p>";
+    }
+    if (diff < 0) return '<p class="note">' + esc(straight) + "Splitting the trip here happens to cost " + esc(peso(-diff)) + " less.</p>";
+    return '<p class="note">' + esc(straight) + "Stopping costs the same.</p>";
   }
 
   /* ---------- Fuel ---------- */
@@ -641,26 +743,26 @@
   ["fuel-kml", "fuel-price", "fuel-trip-km"].forEach(function (id) { $(id).addEventListener("input", renderFuel); });
 
   /* ---------- Share ---------- */
-  function tripToken(t) { return "t." + t.from + "~" + t.to + "~c" + vehicleClass + "~" + (t.round ? "r" : "o"); }
+  // #t.<from>~<to>~c<class>~<r|o>[~<stop>…]; links made before stops existed still read.
+  function tripToken(t) {
+    return "t." + t.from + "~" + t.to + "~c" + vehicleClass + "~" + (t.round ? "r" : "o") +
+      (t.stops || []).map(function (s) { return "~" + s; }).join("");
+  }
   function shareLink() {
-    // Inside the claude.ai viewer the page runs in a frame and can't see the
-    // address people actually open, so use the published page's link there.
-    // Anywhere else (the public website, a local file, the app) the page's
-    // own address is the right one.
+    // Use the page's own address only when it's a real web address other
+    // people can open; inside a frame, a local file or the phone app, the
+    // public website is the link that works for them.
     var framed = false;
     try { framed = window.self !== window.top; } catch (e) { framed = true; }
-    var base = framed ? SHARE_BASE : location.href.split("#")[0];
+    var web = /^https?:$/.test(location.protocol) && !/^(localhost|127\.|10\.|192\.168\.)/.test(location.hostname);
+    var base = !framed && web ? location.href.split("#")[0] : SHARE_BASE;
     return base + "#" + tripToken(current);
   }
   $("share").addEventListener("click", function () {
     if (!current) return;
     var link = shareLink(), out = $("share-out");
-    var framed = false;
-    try { framed = window.self !== window.top; } catch (e) { framed = true; }
     function shown() {
-      out.innerHTML = 'Link: <input class="share-link" readonly value="' + esc(link) + '">' +
-        // Only the private claude.ai copy needs sharing first; the public site opens for anyone.
-        (framed ? '<span class="leads">People need access to this page to open the link (Share menu on the page).</span>' : "");
+      out.innerHTML = 'Link: <input class="share-link" readonly value="' + esc(link) + '">';
       var inp = out.querySelector("input");
       inp.focus(); inp.select();
     }
@@ -672,23 +774,26 @@
     } catch (e) { shown(); }
   });
   function readToken() {
-    var m = /^#t\.(.+)~(.+)~c([123])~([ro])$/.exec(location.hash || "");
+    var m = /^#t\.([^~]+)~([^~]+)~c([123])~([ro])((?:~[^~]+)*)$/.exec(location.hash || "");
     if (!m || !engine.place(m[1]) || !engine.place(m[2])) return null;
-    return { from: m[1], to: m[2], cls: Number(m[3]), round: m[4] === "r" };
+    var via = m[5].split("~").filter(function (s) { return s && engine.place(s); }).slice(0, MAX_STOPS);
+    return { from: m[1], to: m[2], cls: Number(m[3]), round: m[4] === "r", stops: via };
   }
 
   /* ---------- State ---------- */
   function update(changed) {
-    if (changed === "from" || changed === "init") {
-      fill(toSel, "to", fromSel.value ? engine.reachableFrom(fromSel.value, vehicleClass) : null);
-    }
+    // Changing From, a stop or the class can change what's reachable after it.
+    if (changed !== "to" && changed !== "round") refillChain();
     render();
-    store(STORE_KEY, { from: fromSel.value, to: toSel.value, round: roundBox.checked, cls: vehicleClass });
+    store(STORE_KEY, { from: fromSel.value, to: toSel.value, round: roundBox.checked, cls: vehicleClass, stops: activeStops() });
     if (window.TollMap) window.TollMap.refresh();
   }
 
-  function load(from, to, round, cls) {
+  // newStops: a list replaces the stops (a whole new trip); leave it out to
+  // keep the current stops (only one end changed).
+  function load(from, to, round, cls, newStops) {
     if (cls) setClass(cls, true);
+    if (newStops) { stops = newStops.slice(0, MAX_STOPS); renderStopRows(); }
     var o = fromSel.querySelector('option[value="' + CSS.escape(from || "") + '"]');
     fromSel.value = o && !o.disabled ? from : "";
     roundBox.checked = !!round;
@@ -708,15 +813,18 @@
 
   /* ---------- History ---------- */
   function readHistory() { return recall(HISTORY_KEY) || []; }
-  function addHistory(from, to, round, total) {
+  function addHistory(from, to, round, total, via) {
+    var key = (via || []).join(">");
     var h = readHistory().filter(function (x) {
-      return !(x.from === from && x.to === to && x.round === round && (x.cls || 1) === vehicleClass);
+      return !(x.from === from && x.to === to && x.round === round && (x.cls || 1) === vehicleClass && (x.stops || []).join(">") === key);
     });
-    h.unshift({ from: from, to: to, round: round, cls: vehicleClass, total: total, at: new Date().toISOString() });
+    h.unshift({ from: from, to: to, stops: via || [], round: round, cls: vehicleClass, total: total, at: new Date().toISOString() });
     store(HISTORY_KEY, h.slice(0, HISTORY_MAX));
   }
   function renderHistory() {
-    var h = readHistory().filter(function (x) { return engine.place(x.from) && engine.place(x.to); });
+    var h = readHistory().filter(function (x) {
+      return engine.place(x.from) && engine.place(x.to) && (x.stops || []).every(function (s) { return engine.place(s); });
+    });
     var box = $("history");
     if (!h.length) {
       box.innerHTML = '<div class="card"><p class="empty">No trips yet. Trips you look up on the Trip tab are saved here.</p></div>';
@@ -724,14 +832,16 @@
     }
     box.innerHTML = '<div class="card"><ul class="history-list">' + h.map(function (x, i) {
       var cls = x.cls || 1;
-      var go = engine.quote(x.from, x.to, cls);
+      var via = x.stops || [];
+      var go = tripQuote(tripPoints(x.from, x.to, via), cls);
+      if (go.failed !== undefined) go = null;
       var back = x.round ? engine.quote(x.to, x.from, cls) : null;
       var now = go ? go.total + (back ? back.total : 0) : null;
       var when = new Date(x.at);
       var changed = now !== null && now !== x.total
         ? '<span class="was">was ' + peso(x.total) + " when you checked</span>" : "";
       return '<li><button type="button" data-i="' + i + '">' +
-        '<span class="h-route">' + esc(label(engine.place(x.from).name)) + " → " + esc(label(engine.place(x.to).name)) +
+        '<span class="h-route">' + tripPoints(x.from, x.to, via).map(function (id) { return esc(label(engine.place(id).name)); }).join(" → ") +
         (x.round ? " · round trip" : "") + "</span>" +
         '<span class="fare">' + (now !== null ? peso(now) : "—") + "</span>" +
         '<span class="h-meta">Class ' + cls + " · " + esc(when.toLocaleDateString("en-PH", { day: "numeric", month: "short", year: "numeric" })) +
@@ -742,7 +852,7 @@
       b.addEventListener("click", function () {
         var x = h[Number(b.getAttribute("data-i"))];
         showTab("trip");
-        load(x.from, x.to, x.round, x.cls || 1);
+        load(x.from, x.to, x.round, x.cls || 1, x.stops || []);
       });
     });
     // Two taps instead of confirm(): pop-up dialogs don't show inside every viewer.
@@ -831,9 +941,66 @@
       $("tab-" + t).setAttribute("aria-selected", "false");
       $("view-" + t).hidden = true;
     });
-    ["view-changelog", "view-support"].forEach(function (v) { $(v).hidden = v !== id; });
+    ["view-changelog", "view-support", "view-feedback"].forEach(function (v) { $(v).hidden = v !== id; });
     window.scrollTo(0, 0);
   }
+
+  /* ---------- Send feedback ---------- */
+  // A static site can't file GitHub issues itself (that needs a secret
+  // token), so the message opens GitHub's own new-issue form, filled in; the
+  // person presses Create there. Email is the fallback for people without a
+  // GitHub account. Nothing is sent from the page.
+  var fbKind = "Bug";
+  function tripSummary() {
+    if (!current) return "";
+    return tripPoints(current.from, current.to, current.stops || []).map(function (id) { return label(engine.place(id).name); }).join(" → ") +
+      " · Class " + vehicleClass + " · " + (current.round ? "round trip" : "one way") + " · app shows " + peso(current.total);
+  }
+  function feedbackParts() {
+    var text = $("fb-text").value.trim();
+    if (!text) return null;
+    var trip = $("fb-include-trip").checked ? tripSummary() : "";
+    var first = text.split("\n")[0];
+    var title = "[" + fbKind + "] " + (first.length > 70 ? first.slice(0, 67) + "…" : first);
+    var body = text + "\n\n---\n" +
+      (trip ? "Trip: " + trip + (current ? "\nLink: " + shareLink() : "") + "\n" : "") +
+      "App: Toll PH " + (VERSION ? shortVersion(VERSION) : "") + "\nBrowser: " + navigator.userAgent;
+    return { title: title, body: body };
+  }
+  function showFeedback() {
+    showPage("view-feedback");
+    var trip = tripSummary();
+    $("fb-include-trip").parentNode.hidden = !trip;
+    $("fb-include-trip").checked = !!trip;
+    $("fb-trip-preview").textContent = trip ? "Trip on screen: " + trip : "";
+    $("fb-out").textContent = "";
+  }
+  function sendFeedback(how) {
+    var f = feedbackParts(), out = $("fb-out");
+    if (!f) { out.innerHTML = '<span class="warn-text">Type your message first.</span>'; $("fb-text").focus(); return; }
+    var url = how === "github"
+      ? FEEDBACK_ISSUES + "?title=" + encodeURIComponent(f.title) + "&body=" + encodeURIComponent(f.body)
+      : "mailto:" + FEEDBACK_EMAIL + "?subject=" + encodeURIComponent("Toll PH: " + f.title) + "&body=" + encodeURIComponent(f.body);
+    if (how === "github") {
+      window.open(url, "_blank", "noopener");
+      out.innerHTML = "GitHub opened in a new tab with your message. Press <strong>Create</strong> there to send it. " +
+        "Didn't open? <a href=\"" + esc(url) + "\" target=\"_blank\" rel=\"noopener\">Open GitHub</a>.";
+    } else {
+      location.href = url;
+      out.innerHTML = "Your email app should open with the message ready to send. Nothing happened? Email it to " +
+        "<a href=\"mailto:" + esc(FEEDBACK_EMAIL) + "\">" + esc(FEEDBACK_EMAIL) + "</a>.";
+    }
+  }
+  document.querySelectorAll(".fb-kinds [data-kind]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      fbKind = b.getAttribute("data-kind");
+      document.querySelectorAll(".fb-kinds [data-kind]").forEach(function (x) { x.setAttribute("aria-checked", String(x === b)); });
+    });
+  });
+  $("feedback-foot").addEventListener("click", showFeedback);
+  $("feedback-back").addEventListener("click", function () { showTab("trip"); });
+  $("fb-github").addEventListener("click", function () { sendFeedback("github"); });
+  $("fb-email").addEventListener("click", function () { sendFeedback("email"); });
   function showSupport() { showPage("view-support"); }
   $("support-top").addEventListener("click", showSupport);
   $("support-foot").addEventListener("click", showSupport);
@@ -871,8 +1038,9 @@
   if (fuel) { $("fuel-kml").value = fuel.kml || ""; $("fuel-price").value = fuel.price || ""; }
   var linked = readToken(), saved = recall(STORE_KEY);
   setClass((linked && linked.cls) || (saved && saved.cls) || 1, true);
-  if (linked) load(linked.from, linked.to, linked.round, linked.cls);
-  else if (saved) load(saved.from, saved.to, saved.round);
+  renderStopRows();
+  if (linked) load(linked.from, linked.to, linked.round, linked.cls, linked.stops);
+  else if (saved) load(saved.from, saved.to, saved.round, undefined, saved.stops || []);
   else update("init");
   footer();
 
@@ -884,12 +1052,12 @@
     var a = fromSel.value, b = toSel.value;
     var opt = fromSel.querySelector('option[value="' + CSS.escape(b) + '"]');
     if (!b || !opt || opt.disabled) return; // can't start at an exit-only plaza
-    load(b, a, roundBox.checked);
+    load(b, a, roundBox.checked, undefined, activeStops().reverse()); // stops in reverse order for the way back
   });
   $("compare").addEventListener("click", compare);
   window.addEventListener("hashchange", function () {
     var t = readToken();
-    if (t) { showTab("trip"); load(t.from, t.to, t.round, t.cls); }
+    if (t) { showTab("trip"); load(t.from, t.to, t.round, t.cls, t.stops); }
   });
 
   // What the map screen uses: it reads and sets the same From / To as the pickers.
@@ -897,10 +1065,17 @@
     engine: engine,
     label: label,
     money: peso,
-    selection: function () { return { from: fromSel.value, to: toSel.value }; },
-    select: function (fromId, toId) { load(fromId, toId, roundBox.checked); },
+    selection: function () { return { from: fromSel.value, to: toSel.value, stops: activeStops() }; },
+    // Tapping a new start on the map begins a fresh trip, so stops are cleared then.
+    select: function (fromId, toId) { load(fromId, toId, roundBox.checked, undefined, toId ? undefined : []); },
     reachable: function (fromId) { return engine.reachableFrom(fromId, vehicleClass); },
     quote: quote,
+    // The selected trip through its stops: {total, charges, legs} or null.
+    trip: function () {
+      if (!fromSel.value || !toSel.value) return null;
+      var t = tripQuote(tripPoints(fromSel.value, toSel.value, activeStops()));
+      return t.failed !== undefined ? null : t;
+    },
     showTrip: function () { showTab("trip"); },
     showTab: showTab,
     classes: function () { return rates.classes || {}; },

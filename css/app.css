@@ -91,7 +91,7 @@ body {
 /* Trip picker */
 .trip {
   display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: end;
-  grid-template-areas: "veh veh" "cls cls" "desc desc" "from swap" "to swap" "round round";
+  grid-template-areas: "veh veh" "cls cls" "desc desc" "from swap" "stops swap" "to swap" "round round";
 }
 .trip .vehicle-pick { grid-area: veh; }
 .trip .classes { grid-area: cls; }
@@ -99,6 +99,7 @@ body {
 .trip .f-from { grid-area: from; }
 .trip .f-to { grid-area: to; }
 .trip .swap { grid-area: swap; align-self: center; }
+.trip .stops { grid-area: stops; display: grid; gap: 8px; }
 .trip .toggle { grid-area: round; }
 .field { display: block; min-width: 0; }
 .field-label { display: block; font-size: 0.78rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px; }
@@ -257,6 +258,8 @@ input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .r-nlex { stroke: var(--r-nlex); background: var(--r-nlex); }
 .pin.is-from .dot { fill: var(--accent); stroke: var(--accent); r: 16; }
 .pin.is-to .dot { fill: var(--text); stroke: var(--text); r: 16; }
+.pin.is-stop .dot { fill: var(--toll, #ffc72c); stroke: var(--text); r: 14; }
+.pin.is-stop .lbl { display: inline; font-weight: 700; }
 .pin.is-from .lbl, .pin.is-to .lbl { font-weight: 700; }
 .pin.is-dim { opacity: 0.25; }
 .pin:focus { outline: none; }
@@ -510,3 +513,34 @@ details.popular summary { color: var(--accent); font-weight: 800; }
 .gcash { margin: 6px 0 10px; text-align: center; }
 .gcash img { width: 100%; max-width: 300px; height: auto; border-radius: 12px; border: 1px solid var(--line); }
 .gcash figcaption { margin-top: 8px; font-size: 0.86rem; color: var(--muted); text-align: left; }
+
+/* Stops between From and To: each one is a white sign slot with a remove button. */
+.stop-row { display: grid; grid-template-columns: minmax(0, 1fr) 44px; gap: 8px; align-items: end; }
+.stop-x {
+  width: 44px; height: 48px; border-radius: 10px; cursor: pointer; font: inherit; font-size: 1.4rem; font-weight: 800; line-height: 1;
+  background: rgb(255 255 255 / 0.15); color: #ffffff; border: 2px solid rgb(255 255 255 / 0.55);
+}
+.add-stop {
+  justify-self: start; min-height: 36px; padding: 0 14px; border-radius: 999px; cursor: pointer;
+  font: inherit; font-size: 0.88rem; font-weight: 800;
+  background: transparent; color: #ffffff; border: 2px dashed rgb(255 255 255 / 0.7);
+}
+.stop-x:focus-visible, .add-stop:focus-visible { outline: 2px solid var(--toll); outline-offset: 2px; }
+.leg-head { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+.leg-head .fare { font-weight: 800; font-variant-numeric: tabular-nums; color: var(--text); }
+.stop-step { margin: 2px 0 6px; padding: 8px 12px; border-radius: 8px; background: var(--toll); color: var(--toll-ink); font-weight: 800; font-size: 0.9rem; }
+
+/* Send feedback page. */
+.foot-support { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.btn.feedback-btn { width: auto; min-height: 40px; padding: 0 16px; }
+.fb-kinds { margin: 12px 0; }
+.fb-field { margin-bottom: 10px; }
+textarea {
+  width: 100%; padding: 10px 12px; font: inherit; color: var(--text); resize: vertical;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 10px;
+}
+textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.fb-trip { margin-top: 4px; }
+.fb-trip .switch { background: var(--line); }
+.fb-actions { display: grid; gap: 8px; margin-top: 10px; }
+.fb-note { margin-top: 10px; }

@@ -196,6 +196,7 @@
       var id = g.getAttribute("data-place");
       g.classList.toggle("is-from", id === sel.from);
       g.classList.toggle("is-to", id === sel.to);
+      g.classList.toggle("is-stop", (sel.stops || []).indexOf(id) >= 0);
       g.classList.toggle("is-dim", !!reach && id !== sel.from && !reach[id]);
     });
     declutter();
@@ -214,8 +215,9 @@
       fittedFor = "";
       return;
     }
-    var q = app.quote(sel.from, sel.to);
+    var q = app.trip ? app.trip() : app.quote(sel.from, sel.to);  // through any stops
     if (!q) { say("No toll route between those two."); info.hidden = true; return; }
+    var names = [sel.from].concat(sel.stops || [], [sel.to]).map(function (id) { return app.label(engine.place(id).name); });
     var allPts = [];
     q.charges.forEach(function (c) {
       var a = engine.nodes[c.fromId], b = engine.nodes[c.toId], mid = c.passing.map(function (p) { return engine.nodes[p.id]; });
@@ -232,13 +234,11 @@
       allPts = allPts.concat(pts.map(function (s) { return s.split(",").map(Number); }));
     });
     // Zoom to the trip once when it's picked; the user can pan or reset after.
-    var key = sel.from + ">" + sel.to;
+    var key = names.join(">");
     if (fittedFor !== key && allPts.length > 1) { fittedFor = key; fitTo(allPts); }
     // The prompt strip always holds a line, so the map never jumps under a finger.
-    say(app.label(engine.place(sel.from).name) + " → " + app.label(engine.place(sel.to).name) +
-      ". Tap any plaza to start again.");
-    document.getElementById("map-summary").textContent =
-      app.label(engine.place(sel.from).name) + " → " + app.label(engine.place(sel.to).name);
+    say(names.join(" → ") + ". Tap any plaza to start again.");
+    document.getElementById("map-summary").textContent = names.join(" → ");
     document.getElementById("map-total").textContent = app.money(q.total) +
       (q.charges.filter(function (c) { return c.fare > 0; }).length > 1 ? " · " + q.charges.filter(function (c) { return c.fare > 0; }).length + " tolls" : "");
     info.hidden = false;

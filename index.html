@@ -63,6 +63,7 @@
         <button id="swap" class="swap" type="button" aria-label="Swap from and to" title="Swap">
           <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M7 4v13m0 0-3-3m3 3 3-3M17 20V7m0 0-3 3m3-3 3 3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
+        <div id="stops" class="stops"></div>
         <label class="field f-to">
           <span class="field-label">To</span>
           <select id="to"></select>
@@ -160,6 +161,35 @@
       </div>
     </section>
 
+    <section id="view-feedback" hidden aria-labelledby="feedback-title">
+      <div class="card">
+        <button id="feedback-back" class="btn subtle back" type="button">← Back</button>
+        <h2 id="feedback-title" class="card-title cl-title">Send feedback</h2>
+        <p>Found a wrong toll, a bug, or have an idea? Tell me here. Every message is read.</p>
+        <div class="classes fb-kinds" role="radiogroup" aria-label="Type of feedback">
+          <button type="button" role="radio" data-kind="Bug" aria-checked="true">Bug</button>
+          <button type="button" role="radio" data-kind="Suggestion" aria-checked="false">Suggestion</button>
+          <button type="button" role="radio" data-kind="Feedback" aria-checked="false">Feedback</button>
+        </div>
+        <label class="field fb-field">
+          <span class="field-label">Your message</span>
+          <textarea id="fb-text" rows="6" maxlength="3000" placeholder="e.g. Buendia to Calamba charged me ₱X at the plaza, but the app says ₱Y."></textarea>
+        </label>
+        <label class="toggle fb-trip">
+          <input id="fb-include-trip" type="checkbox" checked>
+          <span class="switch" aria-hidden="true"></span>
+          <span>Include the trip on screen</span>
+        </label>
+        <p id="fb-trip-preview" class="step-sub"></p>
+        <p id="fb-out" class="maplink-out" aria-live="polite"></p>
+        <div class="fb-actions">
+          <button id="fb-github" class="btn" type="button">Send on GitHub</button>
+          <button id="fb-email" class="btn subtle" type="button">No GitHub account? Email instead</button>
+        </div>
+        <p class="step-sub fb-note">GitHub opens with your message filled in; press <strong>Create</strong> there to send it. It needs a free GitHub account, and posts there are public, so leave out your plate number, RFID account and phone number.</p>
+      </div>
+    </section>
+
     <section id="view-changelog" hidden aria-labelledby="changelog-title">
       <div class="card">
         <button id="changelog-back" class="btn subtle back" type="button">← Back</button>
@@ -170,7 +200,8 @@
     </section>
 
     <footer class="foot">
-      <p class="foot-support"><button id="support-foot" class="btn coffee" type="button"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 8h12v6a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5V8zM16 10h1.5a2.5 2.5 0 0 1 0 5H16M7 2.5c0 1 1 1.5 1 2.5S7 6.5 7 6.5M11 2.5c0 1 1 1.5 1 2.5s-1 1.5-1 1.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg> Buy me a coffee</button></p>
+      <p class="foot-support"><button id="support-foot" class="btn coffee" type="button"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 8h12v6a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5V8zM16 10h1.5a2.5 2.5 0 0 1 0 5H16M7 2.5c0 1 1 1.5 1 2.5S7 6.5 7 6.5M11 2.5c0 1 1 1.5 1 2.5s-1 1.5-1 1.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg> Buy me a coffee</button>
+        <button id="feedback-foot" class="btn subtle feedback-btn" type="button">Send feedback or report a bug</button></p>
       <p id="app-version"></p>
       <p id="as-of"></p>
       <p id="stale" class="stale" hidden></p>

@@ -9,6 +9,14 @@
 window.TOLLPH_PHASE = "Public beta";
 window.CHANGELOG = [
   {
+    version: "0.10.0", date: "2026-10-17", title: "Add a stop, and send feedback",
+    items: [
+      ["Add a stop.", "Tap \"+ Add a stop\" between From and To to plan a trip where you get off and back on, like lunch in Calamba on the way to Batangas. Up to 3 stops. The app prices each part and shows how much the stop adds, since getting back on starts a new toll."],
+      ["Send feedback or report a bug.", "A button at the bottom of every tab. Pick Bug, Suggestion or Feedback and type your message. It opens on GitHub ready to send, or by email if you don't have a GitHub account."],
+      ["Shared trip links always open the website.", "Links copied from the app now point to the public website, and they keep your stops."]
+    ]
+  },
+  {
     version: "0.9.2", date: "2026-10-17", title: "Google Maps links read correctly",
     items: [
       ["Pasted Google Maps links now start in the right place.", "Some links, such as a trip from a named place to your current location or a dropped pin, showed the wrong toll entry. They now use the start in the link."],

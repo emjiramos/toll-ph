@@ -9,6 +9,12 @@
 window.TOLLPH_PHASE = "Public beta";
 window.CHANGELOG = [
   {
+    version: "0.10.1", date: "2026-10-18", title: "Short Google Maps links work",
+    items: [
+      ["Paste the short link Google Maps gives you.", "Links like maps.app.goo.gl/… now fill in your toll entry and exit straight away, so there's no need to open them in a browser first. The app opens the short link through its own small relay, which only reads Google Maps links and keeps nothing."]
+    ]
+  },
+  {
     version: "0.10.0", date: "2026-10-17", title: "Add a stop, and send feedback",
     items: [
       ["Add a stop.", "Tap \"+ Add a stop\" between From and To to plan a trip where you get off and back on, like lunch in Calamba on the way to Batangas. Up to 3 stops. The app prices each part and shows how much the stop adds, since getting back on starts a new toll."],

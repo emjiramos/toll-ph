@@ -14,6 +14,8 @@
   var FEEDBACK_ISSUES = "https://github.com/emjiramos/toll-ph/issues/new";
   var FEEDBACK_EMAIL = "markkevinr2026@gmail.com";
   var MAX_STOPS = 3;
+  // Follows short Google Maps links (maps.app.goo.gl), which a page can't do itself.
+  var LINK_RELAY = "https://tollph-relay.tollph.workers.dev/expand";
   var STORE_KEY = "tollph.trip";
   var HISTORY_KEY = "tollph.history";
   var FUEL_KEY = "tollph.fuel";
@@ -407,9 +409,18 @@
     var r = TollMapLink.parse(text);
     var appName = r.app === "waze" ? "Waze" : "Google Maps";
     if (r.error === "short") {
-      out.innerHTML = '<span class="warn-text">That\'s a short link, which this page can\'t open by itself.</span> ' +
-        "Open it in your phone's browser (Chrome or Safari, not the Maps app), copy the full address from the address bar " +
-        "(it starts with google.com/maps/dir/), and paste that here instead.";
+      // The page can't follow a short link itself; the relay returns the full link.
+      var asked = r.short;
+      var stale = function () { return $("maplink").value.indexOf(asked) < 0; }; // box changed while waiting
+      out.textContent = "Opening the short link…";
+      expandShortLink(asked).then(function (full) {
+        if (!stale()) useMapLink(full);
+      }, function () {
+        if (stale()) return;
+        out.innerHTML = '<span class="warn-text">Couldn\'t open that short link right now.</span> ' +
+          "Open it in your phone's browser (Chrome or Safari, not the Maps app), copy the full address from the address bar " +
+          "(it starts with google.com/maps/dir/), and paste that here instead.";
+      });
       return;
     }
     if (r.error) {
@@ -463,6 +474,21 @@
       (typeof end === "object" ? " (" + esc(km(plan.offTo)) + " from your destination)" : "") + ". " +
       "Check these match the route " + esc(appName) + " gives you." +
       (plan.offFrom > 30 || plan.offTo > 30 ? ' <span class="warn-text">One end is far from the toll roads in this app, so your actual route may join somewhere else.</span>' : "");
+  }
+  // Ask Toll PH's link relay (relay/worker.js, a Cloudflare Worker) for the
+  // full Google Maps link behind a short one. It only opens Google short
+  // links and keeps nothing. Resolves with the full link or rejects.
+  function expandShortLink(short) {
+    var ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+    var timer = ctrl ? setTimeout(function () { ctrl.abort(); }, 8000) : null;
+    var link = short.replace(/^http:/i, "https:");
+    return fetch(LINK_RELAY + "?url=" + encodeURIComponent(link), ctrl ? { signal: ctrl.signal } : {})
+      .then(function (res) { return res.json(); })
+      .then(function (d) {
+        clearTimeout(timer);
+        if (!d || typeof d.url !== "string" || TollMapLink.parse(d.url).error) throw new Error("no full link");
+        return d.url;
+      }, function (e) { clearTimeout(timer); throw e; });
   }
   // Nearest exit to a destination point (for destination-only links).
   function eng_planExit(end) {

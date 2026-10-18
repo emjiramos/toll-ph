@@ -12,7 +12,9 @@
  * Google directions links carry each stop's position in the data= part as
  * !1d<longitude>!2d<latitude>, and the stop names in the /dir/ path. Short
  * links (maps.app.goo.gl) are only a pointer to that full link, and a page
- * can't follow them itself, so they come back as error "short".
+ * can't follow them itself, so they come back as error "short" (with the
+ * link in .short); app.js then asks the link relay (relay/worker.js) for the
+ * full link and parses that.
  * Waze share links (waze.com/ul/h<geohash>) encode the destination as a
  * geohash; ul?ll=lat,lng and live-map ?to=ll.lat,lng&from=ll.lat,lng are read too.
  */

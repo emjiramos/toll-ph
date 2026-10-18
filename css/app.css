@@ -544,3 +544,8 @@ textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; 
 .fb-trip .switch { background: var(--line); }
 .fb-actions { display: grid; gap: 8px; margin-top: 10px; }
 .fb-note { margin-top: 10px; }
+
+/* Find a place: one box for places, Plus Codes and map links; results offer From / To / + Stop. */
+.find-hint { margin: 6px 0 0; font-size: 0.8rem; color: var(--muted); }
+.sr-actions button.sr-stop { border-style: dashed; }
+@media (max-width: 380px) { .sr-actions button { padding: 0 9px; } }

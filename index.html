@@ -33,15 +33,11 @@
       <div class="card find">
         <label class="field">
           <span class="field-label">Find a place</span>
-          <input id="search" type="search" autocomplete="off" placeholder="e.g. Tagaytay, MOA, Nuvali, airport">
+          <input id="search" type="search" autocomplete="off" placeholder="Town, mall, Plus Code, or paste a Google Maps / Waze link">
         </label>
+        <p class="find-hint">e.g. Tagaytay, MOA, H268+X3Q Makati, or a maps.app.goo.gl link</p>
         <ul id="search-results" class="search-results" hidden></ul>
         <p id="search-note" class="maplink-out" aria-live="polite"></p>
-        <label class="field maplink-field">
-          <span class="field-label">Or paste a Google Maps or Waze link</span>
-          <input id="maplink" type="url" inputmode="url" autocomplete="off" placeholder="https://www.google.com/maps/dir/…">
-        </label>
-        <p id="maplink-out" class="maplink-out" aria-live="polite"></p>
         <details class="popular">
           <summary>Popular trips</summary>
           <div id="popular" class="chips"></div>
@@ -215,6 +211,7 @@
   <script src="js/changelog.js"></script>
   <script src="js/engine.js"></script>
   <script src="js/maplink.js"></script>
+  <script src="js/pluscode.js"></script>
   <script src="js/map.js"></script>
   <script src="js/vehicles.js"></script>
   <script src="js/app.js"></script>

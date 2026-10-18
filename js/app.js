@@ -340,55 +340,152 @@
       (plan.offFrom > 30 || plan.offTo > 30 ? ' <span class="warn-text">That\'s a long drive off the toll roads in this app, so check your map app\'s route too.</span>' : "");
   }
 
-  var foundTowns = [];
+  /* ---------- Stops from search ---------- */
+  function placePt(id) {
+    var p = id && engine.place(id);
+    var n = p && p.nodes.map(function (x) { return engine.nodes[x]; }).filter(function (x) { return typeof x.lat === "number"; })[0];
+    return n ? { lat: n.lat, lng: n.lng } : null;
+  }
+  // Add a plaza as a stop (empty stop rows are dropped). Returns false when
+  // there are already MAX_STOPS stops.
+  function addStop(id) {
+    var list = activeStops();
+    if (list.length >= MAX_STOPS) return false;
+    // Slot it in where it adds the least distance along the trip, so stops
+    // stay in driving order however they were added.
+    var pts = [fromSel.value].concat(list, [toSel.value]).map(placePt), me = placePt(id), at = list.length, best = Infinity;
+    if (me && pts[0] && pts[pts.length - 1]) {
+      for (var i = 0; i < pts.length - 1; i++) {
+        if (!pts[i] || !pts[i + 1]) continue;
+        var extra = engine.kmBetween(pts[i], me) + engine.kmBetween(me, pts[i + 1]) - engine.kmBetween(pts[i], pts[i + 1]);
+        if (extra < best) { best = extra; at = i; }
+      }
+    }
+    list.splice(at, 0, id);
+    stops = list;
+    renderStopRows();
+    update("stop");
+    return true;
+  }
+  function stopFromSearch(id, why) {
+    var note = $("search-note"), name = esc(label(engine.place(id).name));
+    if (!addStop(id)) { note.innerHTML = '<span class="warn-text">You already have ' + MAX_STOPS + " stops.</span> Remove one below first."; return; }
+    // refillChain clears a stop that can't be reached from the point before it.
+    note.innerHTML = activeStops().indexOf(id) >= 0
+      ? "Added a stop at <strong>" + name + "</strong>" + (why || "") + "."
+      : '<span class="warn-text">Can\'t stop at ' + name + " on this trip</span> (it can't be reached from where you are before it). Pick another stop.";
+  }
+  // A stop near a town or map point: the closest plaza you can both leave and
+  // rejoin at, preferring one that fits between the points around it.
+  function stopNear(pt) {
+    var prev = activeStops().length ? activeStops()[activeStops().length - 1] : fromSel.value;
+    var cands = engine.places.filter(function (p) { return !p.hidden && p.canExit && p.canEnter; })
+      .map(function (p) { return { id: p.id, km: engine.kmTo(pt, p) }; })
+      .filter(function (c) { return isFinite(c.km); })
+      .sort(function (a, b) { return a.km - b.km; }).slice(0, 6);
+    if (!cands.length) return;
+    var fits = cands.filter(function (c) {
+      return (!prev || (c.id !== prev && quote(prev, c.id))) && (!toSel.value || (c.id !== toSel.value && quote(c.id, toSel.value)));
+    })[0] || cands[0];
+    stopFromSearch(fits.id, " for " + esc(pt.name) + " (" + esc(km(fits.km)) + " away)");
+  }
+
+  /* ---------- Plus Codes ---------- */
+  // Google's Plus Codes (e.g. "H268+X3Q, Makati City"). A short code only
+  // pins a spot within about 100 km, so it is anchored on the town named next
+  // to it, or on Metro Manila when no town is given.
+  var MANILA = { lat: 14.5995, lng: 120.9842 };
+  function townIn(text) {
+    var n = " " + norm(text) + " ", best = null;
+    townIndex.forEach(function (t) {
+      var at = n.indexOf(" " + t.key + " ");
+      if (at < 0) return;
+      if (!best || at < best.at || (at === best.at && t.key.length > best.t.key.length)) best = { t: t, at: at };
+    });
+    return best ? best.t : null;
+  }
+  function plusCodePoint(q) {
+    if (!window.TollPlusCode) return null;
+    var pc = TollPlusCode.find(q);
+    if (!pc) return null;
+    // The town after the code is its locality ("…, Makati City, Metro Manila"); look there first.
+    var town = townIn(pc.after) || townIn(pc.before);
+    var pt = TollPlusCode.decode(pc.code, town || MANILA);
+    if (!pt) return null;
+    return {
+      lat: pt.lat, lng: pt.lng, name: pc.before.split(",")[0] || pc.code, province: town ? town.name : "",
+      sub: "Plus code " + pc.code + (town ? " · " + town.name : " · assumed near Metro Manila; add the town if it's elsewhere")
+    };
+  }
+
+  var foundTowns = [], linkTimer = null;
+  function actions(attr, from, to, stop) {
+    return '<div class="sr-actions">' +
+      (from ? '<button type="button" ' + attr + ' data-side="from">From</button>' : "") +
+      (to ? '<button type="button" ' + attr + ' data-side="to">To</button>' : "") +
+      (stop ? '<button type="button" class="sr-stop" ' + attr + ' data-side="stop">+ Stop</button>' : "") + "</div>";
+  }
+  function pointRow(t, i, kind) {
+    var nin = nearestPlace(t, "canEnter"), nout = nearestPlace(t, "canExit");
+    return '<li><div class="sr-text"><span class="sr-name">' + esc(t.name) + '</span><span class="leads">' +
+      esc((kind === "code" ? t.sub : (t.province ? t.province + " · " : "") + "town or city") + " · nearest toll plaza: " +
+        label(engine.place(nin.id).name) + " (" + km(Math.min(nin.km, nout.km)) + ")") + "</span></div>" +
+      actions('data-town="' + i + '"', true, true, true) + "</li>";
+  }
   function renderSearch() {
     var list = $("search-results"), q = $("search").value;
-    var found = search(q);
-    foundTowns = searchTowns(q);
+    clearTimeout(linkTimer);
+    foundTowns = [];
     if (!q.trim()) { list.hidden = true; list.innerHTML = ""; return; }
-    list.hidden = false;
-    if (!found.length && !foundTowns.length) {
-      list.innerHTML = '<li class="empty">Nothing found for "' + esc(q) + '". Try a town or city in Luzon, a mall, or a road name.</li>';
+    // A pasted Google Maps or Waze link fills in the whole trip.
+    if (/https?:\/\//i.test(q)) {
+      list.hidden = true; list.innerHTML = "";
+      linkTimer = setTimeout(function () { useMapLink(q); }, 250);
       return;
     }
-    var townRows = foundTowns.map(function (t, i) {
-      var pt = { lat: t.lat, lng: t.lng };
-      var nin = nearestPlace(pt, "canEnter"), nout = nearestPlace(pt, "canExit");
-      return '<li><div class="sr-text"><span class="sr-name">' + esc(t.name) + '</span><span class="leads">' +
-        esc((t.province ? t.province + " · " : "") + "town or city · nearest toll plaza: " + label(engine.place(nin.id).name) +
-          " (" + km(Math.min(nin.km, nout.km)) + ")") + "</span></div>" +
-        '<div class="sr-actions"><button type="button" data-town="' + i + '" data-side="from">From</button>' +
-        '<button type="button" data-town="' + i + '" data-side="to">To</button></div></li>';
-    }).join("");
-    list.innerHTML = townRows + found.map(function (p) {
+    list.hidden = false;
+    var code = plusCodePoint(q);
+    if (code) {
+      foundTowns = [code];
+      list.innerHTML = pointRow(code, 0, "code");
+      return;
+    }
+    var found = search(q);
+    foundTowns = searchTowns(q);
+    if (!found.length && !foundTowns.length) {
+      list.innerHTML = '<li class="empty">Nothing found for "' + esc(q) + '". Try a town or city in Luzon, a mall, a road name, a Plus Code or a Google Maps link.</li>';
+      return;
+    }
+    list.innerHTML = foundTowns.map(function (t, i) { return pointRow(t, i, "town"); }).join("") + found.map(function (p) {
       var leads = [];
       p.nodes.forEach(function (id) {
         engine.nodes[id].leadsTo.forEach(function (l) { if (leads.indexOf(l) < 0) leads.push(l); });
       });
       return "<li><div class=\"sr-text\"><span class=\"sr-name\">" + esc(label(p.name)) + "</span>" +
         '<span class="leads">' + esc(p.group) + (leads.length ? " · → " + esc(leads.slice(0, 4).join(", ")) : "") + "</span></div>" +
-        '<div class="sr-actions">' +
-        (p.canEnter ? '<button type="button" data-set="from" data-place="' + esc(p.id) + '">From</button>' : "") +
-        (p.canExit ? '<button type="button" data-set="to" data-place="' + esc(p.id) + '">To</button>' : "") +
-        "</div></li>";
+        actions('data-place="' + esc(p.id) + '"', p.canEnter, p.canExit, p.canEnter && p.canExit) + "</li>";
     }).join("");
   }
   $("search").addEventListener("input", renderSearch);
   $("search-results").addEventListener("click", function (e) {
-    var tb = e.target.closest("button[data-town]");
-    if (tb) {
-      chooseTown(tb.getAttribute("data-side"), foundTowns[Number(tb.getAttribute("data-town"))]);
-      $("search").value = "";
-      renderSearch();
-      return;
-    }
-    var b = e.target.closest("button[data-set]");
+    var b = e.target.closest("button[data-side]");
     if (!b) return;
-    var id = b.getAttribute("data-place");
-    ends[b.getAttribute("data-set")] = id;
-    $("search-note").textContent = "";
-    if (b.getAttribute("data-set") === "from") load(id, toSel.value === id ? "" : toSel.value, roundBox.checked);
-    else load(fromSel.value, id, roundBox.checked);
+    var side = b.getAttribute("data-side");
+    if (b.hasAttribute("data-town")) {
+      var t = foundTowns[Number(b.getAttribute("data-town"))];
+      if (side === "stop") stopNear({ lat: t.lat, lng: t.lng, name: t.province && t.name !== t.province ? t.name + ", " + t.province : t.name });
+      else chooseTown(side, t);
+    } else {
+      var id = b.getAttribute("data-place");
+      if (side === "stop") {
+        stopFromSearch(id);
+      } else {
+        ends[side] = id;
+        $("search-note").textContent = "";
+        if (side === "from") load(id, toSel.value === id ? "" : toSel.value, roundBox.checked);
+        else load(fromSel.value, id, roundBox.checked);
+      }
+    }
     $("search").value = "";
     renderSearch();
   });
@@ -404,14 +501,14 @@
     return hit ? hit.id : null;
   }
   function useMapLink(text) {
-    var out = $("maplink-out");
+    var out = $("search-note");
     if (!text.trim()) { out.textContent = ""; return; }
     var r = TollMapLink.parse(text);
     var appName = r.app === "waze" ? "Waze" : "Google Maps";
     if (r.error === "short") {
       // The page can't follow a short link itself; the relay returns the full link.
       var asked = r.short;
-      var stale = function () { return $("maplink").value.indexOf(asked) < 0; }; // box changed while waiting
+      var stale = function () { return $("search").value.indexOf(asked) < 0; }; // box changed while waiting
       out.textContent = "Opening the short link…";
       expandShortLink(asked).then(function (full) {
         if (!stale()) useMapLink(full);
@@ -432,13 +529,13 @@
       // The link names a start we can't place: say so rather than quietly
       // keeping whatever entry was picked before.
       out.innerHTML = '<span class="warn-text">Couldn\'t tell where this ' + esc(appName) + " trip starts (" +
-        esc(r.from.name.split(",")[0] || "no place name") + ").</span> Search for your start above, or pick your entry.";
+        esc(r.from.name.split(",")[0] || "no place name") + ").</span> Search for your start instead, or pick your entry.";
       return;
     }
     if (!start) start = fromSel.value || null;
     var end = resolve(r.to, "canExit");
     if (!end) {
-      out.innerHTML = '<span class="warn-text">Couldn\'t tell where this ' + esc(appName) + " trip ends.</span> Try searching for the place above.";
+      out.innerHTML = '<span class="warn-text">Couldn\'t tell where this ' + esc(appName) + " trip ends.</span> Try searching for the place instead.";
       return;
     }
     if (!start) {
@@ -463,7 +560,7 @@
       return;
     }
     load(plan.from, plan.to, roundBox.checked, undefined, []);
-    $("maplink").value = "";
+    $("search").value = "";
     var who = function (pt) { return pt && pt.name ? esc(pt.name.split(",")[0]) : "your start"; };
     out.innerHTML = (r.from
       ? "From " + esc(appName) + ": " + who(r.from) + " → " + (r.to && r.to.name ? esc(r.to.name.split(",")[0]) : "your destination") + ".<br>"
@@ -501,11 +598,6 @@
     });
     return best;
   }
-  var linkTimer = null;
-  $("maplink").addEventListener("input", function () {
-    clearTimeout(linkTimer);
-    linkTimer = setTimeout(function () { useMapLink($("maplink").value); }, 250);
-  });
 
   function renderPopular() {
     $("popular").innerHTML = POPULAR.map(function (r, i) {

@@ -9,6 +9,14 @@
 window.TOLLPH_PHASE = "Public beta";
 window.CHANGELOG = [
   {
+    version: "0.11.0", date: "2026-10-18", title: "One search box for everything",
+    items: [
+      ["Plus Codes work in Find a place.", "Paste an address from Google Maps with a Plus Code, like \"Ayala Avenue, H268+X3Q, Makati City\", or just the code. The app finds the spot and the nearest toll plaza. Add the town after a short code if it's outside Metro Manila."],
+      ["Paste map links into Find a place.", "Google Maps and Waze links, short ones included, now go in the same box. The separate link box is gone."],
+      ["Add a stop straight from search.", "Every result now has From, To and + Stop. Stops fall into driving order on their own, whichever order you add them."]
+    ]
+  },
+  {
     version: "0.10.1", date: "2026-10-18", title: "Short Google Maps links work",
     items: [
       ["Paste the short link Google Maps gives you.", "Links like maps.app.goo.gl/… now fill in your toll entry and exit straight away, so there's no need to open them in a browser first. The app opens the short link through its own small relay, which only reads Google Maps links and keeps nothing."]
